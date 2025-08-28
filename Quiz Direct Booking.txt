@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boutique Hotel Direct Booking Readiness Quiz</title>
+    <!-- Inter font from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .quiz-container {
+            max-width: 800px;
+            margin: 2rem auto;
+            background: #fff;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+            padding: 2rem;
+        }
+        .question-card {
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+        .question-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        }
+        .answer-button {
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .answer-button:hover {
+            transform: scale(1.02);
+        }
+        .answer-button.selected {
+            border-color: #4f46e5;
+            background-color: #eef2ff;
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .progress-bar-container {
+            height: 8px;
+            background-color: #e5e7eb;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #4f46e5;
+            transition: width 0.3s ease-in-out;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4 sm:p-6 lg:p-8">
+
+    <div class="quiz-container relative">
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent mb-4"></div>
+                <p class="text-indigo-600 font-semibold">Saving your results...</p>
+            </div>
+        </div>
+
+        <!-- Quiz Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">Direct Booking Readiness Quiz</h1>
+            <p class="text-lg text-gray-600">Discover where your boutique hotel stands today.</p>
+        </header>
+
+        <!-- Quiz Container -->
+        <div id="quiz-area" class="fade-in">
+
+            <!-- Progress Bar -->
+            <div class="progress-bar-container mb-8">
+                <div id="progress-bar" class="progress-bar" style="width: 0%;"></div>
+            </div>
+
+            <!-- Quiz Content -->
+            <div id="quiz-content">
+                <!-- Questions will be dynamically inserted here -->
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div id="quiz-nav" class="flex justify-between mt-8">
+                <button id="prev-btn" class="bg-gray-300 text-gray-800 font-medium py-3 px-6 rounded-full opacity-0 cursor-not-allowed" disabled>
+                    Previous
+                </button>
+                <button id="next-btn" class="bg-indigo-600 text-white font-medium py-3 px-6 rounded-full shadow-lg hover:bg-indigo-700 transition" onclick="nextQuestion()">
+                    Next
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Container -->
+        <div id="results-area" class="hidden text-center fade-in">
+            <h2 class="text-3xl font-bold text-gray-900 mb-4">Your Readiness Score</h2>
+            <div id="score-display" class="text-6xl font-extrabold text-indigo-600 mb-4"></div>
+            <div id="readiness-level" class="text-2xl font-semibold mb-6"></div>
+            <div id="recommendations" class="text-left bg-gray-50 p-6 rounded-xl border border-gray-200">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">What This Means & Your Next Steps:</h3>
+                <div id="recommendation-content"></div>
+            </div>
+            <button onclick="resetQuiz()" class="mt-8 bg-indigo-600 text-white font-medium py-3 px-8 rounded-full shadow-lg hover:bg-indigo-700 transition">
+                Retake Quiz
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // --- Firebase Initialization and Authentication ---
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        let userId;
+
+        // Sign in the user anonymously to allow saving data
+        async function signIn() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                userId = auth.currentUser.uid;
+                console.log("Firebase signed in with userId:", userId);
+            } catch (error) {
+                console.error("Firebase authentication error:", error);
+            }
+        }
+        signIn();
+
+        // Array of quiz questions, options, and scores
+        const quizQuestions = [
+            {
+                question: "How would you describe your hotel's website?",
+                answers: [
+                    { text: "It's a modern, mobile-first design with an integrated, secure booking engine.", score: 20 },
+                    { text: "It's functional, but the design is a bit dated and the booking engine is a separate site.", score: 10 },
+                    { text: "We primarily use OTAs and don't have a dedicated website or booking engine.", score: 0 }
+                ]
+            },
+            {
+                question: "How do you incentivize guests to book directly on your website?",
+                answers: [
+                    { text: "We offer exclusive perks like free breakfast, late checkout, or a 'best price' guarantee.", score: 20 },
+                    { text: "We occasionally run a special discount code, but don't have a consistent program.", score: 10 },
+                    { text: "We don't offer any incentives for direct bookings, as it creates rate parity issues.", score: 0 }
+                ]
+            },
+            {
+                question: "How do you manage guest reviews and reputation?",
+                answers: [
+                    { text: "We actively monitor and respond to reviews on our site and third-party platforms.", score: 20 },
+                    { text: "We read reviews on OTAs but don't have a system for responding or gathering our own.", score: 10 },
+                    { text: "We don't actively manage reviews; they take care of themselves.", score: 0 }
+                ]
+            },
+            {
+                question: "What is your social media and digital marketing strategy?",
+                answers: [
+                    { text: "We consistently post engaging content, run targeted ads, and link directly to our booking engine.", score: 20 },
+                    { text: "We have social media pages, but our posts are irregular and we don't use paid ads.", score: 10 },
+                    { text: "We don't have a social media presence or any digital marketing campaigns.", score: 0 }
+                ]
+            },
+            {
+                question: "How do you utilize guest data and post-stay communication?",
+                answers: [
+                    { text: "We use a CRM to send personalized emails with a rebooking offer after their stay.", score: 20 },
+                    { text: "We collect guest emails but don't have a consistent plan for follow-up communication.", score: 10 },
+                    { text: "Guest data is owned by OTAs, so we have no way to communicate with them post-stay.", score: 0 }
+                ]
+            },
+            {
+                question: "How do you track your website's performance?",
+                answers: [
+                    { text: "We actively use analytics to track website traffic, bounce rates, and conversion funnels.", score: 10 },
+                    { text: "We have Google Analytics installed, but we rarely look at the data.", score: 5 },
+                    { text: "We don't use any analytics tools to measure our website's performance.", score: 0 }
+                ]
+            }
+        ];
+
+        // Quiz state variables
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let selectedAnswers = new Array(quizQuestions.length).fill(null);
+        const quizContent = document.getElementById('quiz-content');
+        const nextBtn = document.getElementById('next-btn');
+        const prevBtn = document.getElementById('prev-btn');
+        const progressBar = document.getElementById('progress-bar');
+        const quizArea = document.getElementById('quiz-area');
+        const resultsArea = document.getElementById('results-area');
+        const scoreDisplay = document.getElementById('score-display');
+        const readinessLevel = document.getElementById('readiness-level');
+        const recommendationContent = document.getElementById('recommendation-content');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        // Function to render the current question
+        function renderQuestion() {
+            // Get the current question object
+            const q = quizQuestions[currentQuestionIndex];
+
+            // Update progress bar
+            const progressPercentage = (currentQuestionIndex / quizQuestions.length) * 100;
+            progressBar.style.width = progressPercentage + '%';
+
+            // Create HTML for the question and answers
+            let questionHtml = `
+                <div class="question-card bg-gray-50 border border-gray-200 mb-6 fade-in">
+                    <p class="text-lg font-semibold text-gray-700 mb-4">${currentQuestionIndex + 1}. ${q.question}</p>
+                    <div class="space-y-4">
+                        ${q.answers.map((answer, index) => `
+                            <button
+                                class="answer-button w-full text-left p-4 rounded-xl border-2 border-gray-300 bg-white text-gray-800 hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                                onclick="selectAnswer(${index})"
+                                data-score="${answer.score}"
+                            >
+                                ${answer.text}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            quizContent.innerHTML = questionHtml;
+
+            // Mark the previously selected answer for this question
+            if (selectedAnswers[currentQuestionIndex] !== null) {
+                const buttons = quizContent.querySelectorAll('.answer-button');
+                buttons[selectedAnswers[currentQuestionIndex]].classList.add('selected');
+            }
+
+            // Update navigation button states
+            updateNavButtons();
+        }
+
+        // Function to handle answer selection
+        function selectAnswer(index) {
+            // Remove 'selected' class from all buttons
+            const buttons = quizContent.querySelectorAll('.answer-button');
+            buttons.forEach(btn => btn.classList.remove('selected'));
+
+            // Add 'selected' class to the clicked button
+            buttons[index].classList.add('selected');
+            selectedAnswers[currentQuestionIndex] = index;
+
+            // Enable the next button if an answer is selected
+            nextBtn.disabled = false;
+            nextBtn.classList.remove('opacity-0', 'cursor-not-allowed');
+        }
+
+        // Function to move to the next question
+        function nextQuestion() {
+            // Check if an answer has been selected for the current question
+            if (selectedAnswers[currentQuestionIndex] === null) {
+                // If not, simply return without moving
+                return;
+            }
+
+            if (currentQuestionIndex < quizQuestions.length - 1) {
+                // Move to the next question
+                currentQuestionIndex++;
+                renderQuestion();
+                // Disable next button until an answer is selected for the new question
+                nextBtn.disabled = selectedAnswers[currentQuestionIndex] === null;
+                if(nextBtn.disabled) {
+                    nextBtn.classList.add('opacity-0', 'cursor-not-allowed');
+                } else {
+                    nextBtn.classList.remove('opacity-0', 'cursor-not-allowed');
+                }
+            } else {
+                // All questions answered, calculate score and show results
+                calculateScore();
+            }
+        }
+
+        // Function to move to the previous question
+        function prevQuestion() {
+            if (currentQuestionIndex > 0) {
+                currentQuestionIndex--;
+                renderQuestion();
+                // Enable next button when going back
+                nextBtn.disabled = false;
+                nextBtn.classList.remove('opacity-0', 'cursor-not-allowed');
+            }
+        }
+
+        // Function to update the state of navigation buttons
+        function updateNavButtons() {
+            // Previous button state
+            if (currentQuestionIndex === 0) {
+                prevBtn.disabled = true;
+                prevBtn.classList.add('opacity-0', 'cursor-not-allowed');
+            } else {
+                prevBtn.disabled = false;
+                prevBtn.classList.remove('opacity-0', 'cursor-not-allowed');
+            }
+
+            // Next button text
+            if (currentQuestionIndex === quizQuestions.length - 1) {
+                nextBtn.textContent = 'See Results';
+            } else {
+                nextBtn.textContent = 'Next';
+            }
+        }
+
+        // Function to calculate the total score and show results
+        function calculateScore() {
+            let totalScore = 0;
+            const quizResults = [];
+            selectedAnswers.forEach((answerIndex, questionIndex) => {
+                if (answerIndex !== null) {
+                    const questionText = quizQuestions[questionIndex].question;
+                    const answerText = quizQuestions[questionIndex].answers[answerIndex].text;
+                    const answerScore = quizQuestions[questionIndex].answers[answerIndex].score;
+                    totalScore += answerScore;
+                    quizResults.push({ question: questionText, answer: answerText, score: answerScore });
+                }
+            });
+            score = totalScore;
+
+            // Save the results to Firestore
+            saveQuizResults(quizResults, score);
+
+            showResults();
+        }
+
+        // --- New Function to save data to Firestore ---
+        async function saveQuizResults(results, finalScore) {
+            loadingOverlay.classList.remove('hidden');
+            try {
+                // Wait for authentication to complete
+                await new Promise(resolve => {
+                    const unsubscribe = auth.onAuthStateChanged(user => {
+                        if (user) {
+                            unsubscribe();
+                            resolve();
+                        }
+                    });
+                });
+
+                // Construct the data to be saved
+                const quizData = {
+                    userId: userId,
+                    score: finalScore,
+                    results: results,
+                    timestamp: serverTimestamp()
+                };
+
+                // Save the data to the 'quiz_submissions' collection
+                const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/quiz_submissions`), quizData);
+                console.log("Document successfully written with ID:", docRef.id);
+            } catch (e) {
+                console.error("Error adding document: ", e);
+            } finally {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // Function to display the results
+        function showResults() {
+            quizArea.classList.add('hidden');
+            resultsArea.classList.remove('hidden');
+
+            const totalPossibleScore = quizQuestions.length * 20; // 20 points per question max
+            const scorePercentage = (score / totalPossibleScore) * 100;
+
+            scoreDisplay.textContent = `${score}%`;
+            readinessLevel.textContent = getReadinessLevel(scorePercentage);
+            recommendationContent.innerHTML = getRecommendations(scorePercentage);
+        }
+
+        // Function to get the readiness level based on score
+        function getReadinessLevel(percentage) {
+            if (percentage >= 80) {
+                return "Ready for Takeoff!";
+            } else if (percentage >= 40) {
+                return "Gaining Altitude...";
+            } else {
+                return "Just Got Started!";
+            }
+        }
+
+        // Function to get recommendations based on score
+        function getRecommendations(percentage) {
+            let recommendations = '';
+
+            if (percentage >= 80) {
+                recommendations = `
+                    <p class="mb-4"><strong>Status:</strong> Your direct booking strategy is strong. You have a solid foundation and are likely seeing great results. You've implemented most of the core elements for success.</p>
+                    <p class="mb-2"><strong>What's Working:</strong> Your website, booking engine, and marketing efforts are all aligned to drive direct business. You're building a loyal customer base and retaining valuable guest data.</p>
+                    <p><strong>Areas for Growth:</strong> To reach the next level, focus on fine-tuning. Consider A/B testing your website's booking flow, exploring new digital ad channels (like Google Hotel Ads), and creating highly personalized offers based on guest data to boost loyalty.</p>
+                `;
+            } else if (percentage >= 40) {
+                recommendations = `
+                    <p class="mb-4"><strong>Status:</strong> You have a good foundation but there is significant room for growth. You've started on the direct booking journey but may be missing some key components that will truly shift the balance away from OTAs.</p>
+                    <p class="mb-2"><strong>What's Working:</strong> You have some digital presence and understand the value of direct bookings. This is a great starting point, and you can leverage it to make a big impact.</p>
+                    <p><strong>Areas for Growth:</strong> Your biggest opportunity is to integrate and optimize. Ensure your website and booking engine are seamless and mobile-friendly. Establish a consistent social media and email marketing strategy. Start tracking your website's performance to understand where potential guests are dropping off.</p>
+                `;
+            } else {
+                recommendations = `
+                    <p class="mb-4"><strong>Status:</strong> Your direct booking setup is in its early stages, which means there's a huge opportunity for improvement. By making a few key changes, you can start building a more profitable and sustainable business.</p>
+                    <p class="mb-2"><strong>What's Working:</strong> You're here to learn, and that's the most important first step! Recognizing the need to grow your direct business is the beginning of a successful strategy.</p>
+                    <p><strong>Areas for Growth:</strong> Start with the basics. Invest in a modern, mobile-friendly website and a dedicated booking engine. Create compelling reasons for guests to book with you directly, and begin building an online presence through social media and a consistent email list. Every small step will lead to a big win.</p>
+                `;
+            }
+            return recommendations;
+        }
+
+        // Function to reset the quiz
+        function resetQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            selectedAnswers = new Array(quizQuestions.length).fill(null);
+            quizArea.classList.remove('hidden');
+            resultsArea.classList.add('hidden');
+            renderQuestion();
+        }
+
+        // Initialize the quiz
+        document.addEventListener('DOMContentLoaded', () => {
+            renderQuestion();
+        });
+    </script>
+</body>
+</html>
